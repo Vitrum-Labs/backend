@@ -5,9 +5,10 @@ const router = Router();
 
 /**
  * POST /api/review
- * Create new review (vote bullish/bearish)
+ * Create new review/comment
  * Requires: reviewer wallet score >= 100
- * Body: { influencerId, reviewerWalletAddress, sentiment, comment? }
+ * Note: Bullish/bearish votes handled by smart contract
+ * Body: { influencerId, reviewerWalletAddress, comment }
  */
 router.post('/', async (req: Request, res: Response) => {
   try {
@@ -32,7 +33,7 @@ router.post('/', async (req: Request, res: Response) => {
 router.get('/influencer/:influencerId', async (req: Request, res: Response) => {
   try {
     const { influencerId } = req.params;
-    const reviews = reviewService.getReviewsByInfluencer(influencerId);
+    const reviews = await reviewService.getReviewsByInfluencer(influencerId);
 
     res.json({
       success: true,
@@ -48,13 +49,13 @@ router.get('/influencer/:influencerId', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/review/influencer/:influencerId/stats
- * Get review stats for an influencer
+ * GET /api/review/influencer/:influencerId/count
+ * Get review count for an influencer
  */
-router.get('/influencer/:influencerId/stats', async (req: Request, res: Response) => {
+router.get('/influencer/:influencerId/count', async (req: Request, res: Response) => {
   try {
     const { influencerId } = req.params;
-    const stats = reviewService.getInfluencerReviewStats(influencerId);
+    const stats = await reviewService.getInfluencerReviewCount(influencerId);
 
     res.json({
       success: true,
@@ -63,7 +64,7 @@ router.get('/influencer/:influencerId/stats', async (req: Request, res: Response
   } catch (error: any) {
     res.status(400).json({
       success: false,
-      error: error.message || 'Failed to get stats',
+      error: error.message || 'Failed to get review count',
     });
   }
 });
@@ -75,7 +76,7 @@ router.get('/influencer/:influencerId/stats', async (req: Request, res: Response
 router.get('/reviewer/:walletAddress', async (req: Request, res: Response) => {
   try {
     const { walletAddress } = req.params;
-    const reviews = reviewService.getReviewsByReviewer(walletAddress);
+    const reviews = await reviewService.getReviewsByReviewer(walletAddress);
 
     res.json({
       success: true,
@@ -97,7 +98,7 @@ router.get('/reviewer/:walletAddress', async (req: Request, res: Response) => {
 router.get('/check/:walletAddress/:influencerId', async (req: Request, res: Response) => {
   try {
     const { walletAddress, influencerId } = req.params;
-    const hasReviewed = reviewService.hasReviewed(walletAddress, influencerId);
+    const hasReviewed = await reviewService.hasReviewed(walletAddress, influencerId);
 
     res.json({
       success: true,
@@ -120,7 +121,7 @@ router.get('/check/:walletAddress/:influencerId', async (req: Request, res: Resp
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const review = reviewService.getReviewById(id);
+    const review = await reviewService.getReviewById(id);
 
     if (!review) {
       return res.status(404).json({

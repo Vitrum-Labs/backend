@@ -5,8 +5,8 @@ const router = Router();
 
 /**
  * POST /api/influencer
- * Create new influencer profile
- * Requires: wallet score >= 100
+ * Create new influencer/creator profile
+ * Anyone can create - no reputation requirement
  */
 router.post('/', async (req: Request, res: Response) => {
   try {
@@ -28,13 +28,13 @@ router.post('/', async (req: Request, res: Response) => {
  * GET /api/influencer
  * Get all influencers
  * Query params:
- *  - sortBy: recent | popular | bullish
+ *  - sortBy: recent | popular
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const sortBy = req.query.sortBy as 'recent' | 'popular' | 'bullish' | undefined;
+    const sortBy = req.query.sortBy as 'recent' | 'popular' | undefined;
 
-    const influencers = influencerService.getAllInfluencers({ sortBy });
+    const influencers = await influencerService.getAllInfluencers({ sortBy });
 
     res.json({
       success: true,
@@ -56,7 +56,7 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const influencer = influencerService.getInfluencerById(id);
+    const influencer = await influencerService.getInfluencerById(id);
 
     if (!influencer) {
       return res.status(404).json({
@@ -84,7 +84,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 router.get('/wallet/:address', async (req: Request, res: Response) => {
   try {
     const { address } = req.params;
-    const influencer = influencerService.getInfluencerByWallet(address);
+    const influencer = await influencerService.getInfluencerByWallet(address);
 
     if (!influencer) {
       return res.status(404).json({

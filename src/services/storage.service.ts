@@ -1,112 +1,301 @@
+import { sql } from '../config/database';
 import { Influencer } from '../models/influencer.model';
 import { Review } from '../models/review.model';
 
 /**
- * In-memory storage for MVP
- * For production, replace with proper database (PostgreSQL, MongoDB, etc)
+ * PostgreSQL Storage Service (Neon)
+ * Migrated from in-memory storage to persistent database
  */
 class StorageService {
-  private influencers: Map<string, Influencer> = new Map();
-  private reviews: Map<string, Review> = new Map();
-  private reviewsByInfluencer: Map<string, string[]> = new Map(); // influencerId -> reviewIds[]
-  private reviewsByReviewer: Map<string, string[]> = new Map(); // reviewerWallet -> reviewIds[]
-
   // ========== INFLUENCER OPERATIONS ==========
 
-  createInfluencer(influencer: Influencer): Influencer {
-    this.influencers.set(influencer.id, influencer);
-    return influencer;
-  }
-
-  getInfluencerById(id: string): Influencer | null {
-    return this.influencers.get(id) || null;
-  }
-
-  getInfluencerByWallet(walletAddress: string): Influencer | null {
-    for (const influencer of this.influencers.values()) {
-      if (influencer.walletAddress.toLowerCase() === walletAddress.toLowerCase()) {
-        return influencer;
-      }
+  async createInfluencer(influencer: Influencer): Promise<Influencer> {
+    try {
+      await sql`
+        INSERT INTO influencers (
+          id, wallet_address, name, bio, social_links, profile_image,
+          created_at, total_reviews
+        ) VALUES (
+          ${influencer.id},
+          ${influencer.walletAddress.toLowerCase()},
+          ${influencer.name},
+          ${influencer.bio},
+          ${JSON.stringify(influencer.socialLinks || null)},
+          ${influencer.profileImage || null},
+          ${influencer.createdAt},
+          ${influencer.totalReviews}
+        )
+      `;
+      return influencer;
+    } catch (error: any) {
+      console.error('Error creating influencer:', error.message);
+      throw new Error('Failed to create influencer');
     }
-    return null;
   }
 
-  getAllInfluencers(): Influencer[] {
-    return Array.from(this.influencers.values());
+  async getInfluencerById(id: string): Promise<Influencer | null> {
+    try {
+      const result = await sql`
+        SELECT * FROM influencers WHERE id = ${id}
+      `;
+
+      if (result.length === 0) return null;
+
+      return this.mapInfluencerFromDB(result[0]);
+    } catch (error: any) {
+      console.error('Error getting influencer by ID:', error.message);
+      return null;
+    }
   }
 
-  updateInfluencer(id: string, updates: Partial<Influencer>): Influencer | null {
-    const influencer = this.influencers.get(id);
-    if (!influencer) return null;
+  async getInfluencerByWallet(walletAddress: string): Promise<Influencer | null> {
+    try {
+      const result = await sql`
+        SELECT * FROM influencers
+        WHERE LOWER(wallet_address) = ${walletAddress.toLowerCase()}
+      `;
 
-    const updated = { ...influencer, ...updates };
-    this.influencers.set(id, updated);
-    return updated;
+      if (result.length === 0) return null;
+
+      return this.mapInfluencerFromDB(result[0]);
+    } catch (error: any) {
+      console.error('Error getting influencer by wallet:', error.message);
+      return null;
+    }
   }
 
-  deleteInfluencer(id: string): boolean {
-    return this.influencers.delete(id);
+  async getAllInfluencers(): Promise<Influencer[]> {
+    try {
+      const result = await sql`
+        SELECT * FROM influencers
+        ORDER BY created_at DESC
+      `;
+
+      return result.map((row) => this.mapInfluencerFromDB(row));
+    } catch (error: any) {
+      console.error('Error getting all influencers:', error.message);
+      return [];
+    }
+  }
+
+  async updateInfluencer(id: string, updates: Partial<Influencer>): Promise<Influencer | null> {
+    try {
+      // Build dynamic update query
+      const fields: string[] = [];
+      const values: any[] = [];
+      let paramIndex = 1;
+
+      if (updates.name !== undefined) {
+        fields.push(`name = $${paramIndex++}`);
+        values.push(updates.name);
+      }
+      if (updates.bio !== undefined) {
+        fields.push(`bio = $${paramIndex++}`);
+        values.push(updates.bio);
+      }
+      if (updates.socialLinks !== undefined) {
+        fields.push(`social_links = $${paramIndex++}`);
+        values.push(JSON.stringify(updates.socialLinks));
+      }
+      if (updates.profileImage !== undefined) {
+        fields.push(`profile_image = $${paramIndex++}`);
+        values.push(updates.profileImage);
+      }
+      if (updates.totalReviews !== undefined) {
+        fields.push(`total_reviews = $${paramIndex++}`);
+        values.push(updates.totalReviews);
+      }
+
+      if (fields.length === 0) {
+        return this.getInfluencerById(id);
+      }
+
+      // Use sql template literal with dynamic fields
+      const result = await sql`
+        UPDATE influencers
+        SET
+          name = COALESCE(${updates.name}, name),
+          bio = COALESCE(${updates.bio}, bio),
+          social_links = COALESCE(${updates.socialLinks ? JSON.stringify(updates.socialLinks) : null}, social_links),
+          profile_image = COALESCE(${updates.profileImage}, profile_image),
+          total_reviews = COALESCE(${updates.totalReviews}, total_reviews)
+        WHERE id = ${id}
+        RETURNING *
+      `;
+
+      if (result.length === 0) return null;
+
+      return this.mapInfluencerFromDB(result[0]);
+    } catch (error: any) {
+      console.error('Error updating influencer:', error.message);
+      return null;
+    }
+  }
+
+  async deleteInfluencer(id: string): Promise<boolean> {
+    try {
+      const result = await sql`
+        DELETE FROM influencers WHERE id = ${id} RETURNING id
+      `;
+      return result.length > 0;
+    } catch (error: any) {
+      console.error('Error deleting influencer:', error.message);
+      return false;
+    }
   }
 
   // ========== REVIEW OPERATIONS ==========
 
-  createReview(review: Review): Review {
-    this.reviews.set(review.id, review);
-
-    // Index by influencer
-    const influencerReviews = this.reviewsByInfluencer.get(review.influencerId) || [];
-    influencerReviews.push(review.id);
-    this.reviewsByInfluencer.set(review.influencerId, influencerReviews);
-
-    // Index by reviewer
-    const reviewerReviews = this.reviewsByReviewer.get(review.reviewerWalletAddress.toLowerCase()) || [];
-    reviewerReviews.push(review.id);
-    this.reviewsByReviewer.set(review.reviewerWalletAddress.toLowerCase(), reviewerReviews);
-
-    return review;
+  async createReview(review: Review): Promise<Review> {
+    try {
+      await sql`
+        INSERT INTO reviews (
+          id, influencer_id, reviewer_wallet_address, comment, created_at
+        ) VALUES (
+          ${review.id},
+          ${review.influencerId},
+          ${review.reviewerWalletAddress.toLowerCase()},
+          ${review.comment},
+          ${review.createdAt}
+        )
+      `;
+      return review;
+    } catch (error: any) {
+      console.error('Error creating review:', error.message);
+      throw new Error('Failed to create review');
+    }
   }
 
-  getReviewById(id: string): Review | null {
-    return this.reviews.get(id) || null;
+  async getReviewById(id: string): Promise<Review | null> {
+    try {
+      const result = await sql`
+        SELECT * FROM reviews WHERE id = ${id}
+      `;
+
+      if (result.length === 0) return null;
+
+      return this.mapReviewFromDB(result[0]);
+    } catch (error: any) {
+      console.error('Error getting review by ID:', error.message);
+      return null;
+    }
   }
 
-  getReviewsByInfluencer(influencerId: string): Review[] {
-    const reviewIds = this.reviewsByInfluencer.get(influencerId) || [];
-    return reviewIds
-      .map((id) => this.reviews.get(id))
-      .filter((review): review is Review => review !== undefined);
+  async getReviewsByInfluencer(influencerId: string): Promise<Review[]> {
+    try {
+      const result = await sql`
+        SELECT * FROM reviews
+        WHERE influencer_id = ${influencerId}
+        ORDER BY created_at DESC
+      `;
+
+      return result.map((row) => this.mapReviewFromDB(row));
+    } catch (error: any) {
+      console.error('Error getting reviews by influencer:', error.message);
+      return [];
+    }
   }
 
-  getReviewsByReviewer(reviewerWallet: string): Review[] {
-    const reviewIds = this.reviewsByReviewer.get(reviewerWallet.toLowerCase()) || [];
-    return reviewIds
-      .map((id) => this.reviews.get(id))
-      .filter((review): review is Review => review !== undefined);
+  async getReviewsByReviewer(reviewerWallet: string): Promise<Review[]> {
+    try {
+      const result = await sql`
+        SELECT * FROM reviews
+        WHERE LOWER(reviewer_wallet_address) = ${reviewerWallet.toLowerCase()}
+        ORDER BY created_at DESC
+      `;
+
+      return result.map((row) => this.mapReviewFromDB(row));
+    } catch (error: any) {
+      console.error('Error getting reviews by reviewer:', error.message);
+      return [];
+    }
   }
 
-  hasReviewedInfluencer(reviewerWallet: string, influencerId: string): boolean {
-    const reviews = this.getReviewsByReviewer(reviewerWallet);
-    return reviews.some((review) => review.influencerId === influencerId);
+  async hasReviewedInfluencer(reviewerWallet: string, influencerId: string): Promise<boolean> {
+    try {
+      const result = await sql`
+        SELECT EXISTS(
+          SELECT 1 FROM reviews
+          WHERE LOWER(reviewer_wallet_address) = ${reviewerWallet.toLowerCase()}
+          AND influencer_id = ${influencerId}
+        ) as exists
+      `;
+
+      return result[0].exists;
+    } catch (error: any) {
+      console.error('Error checking reviewed status:', error.message);
+      return false;
+    }
   }
 
-  getAllReviews(): Review[] {
-    return Array.from(this.reviews.values());
+  async getAllReviews(): Promise<Review[]> {
+    try {
+      const result = await sql`
+        SELECT * FROM reviews
+        ORDER BY created_at DESC
+      `;
+
+      return result.map((row) => this.mapReviewFromDB(row));
+    } catch (error: any) {
+      console.error('Error getting all reviews:', error.message);
+      return [];
+    }
   }
 
   // ========== STATS ==========
 
-  getStorageStats() {
+  async getStorageStats() {
+    try {
+      const influencersResult = await sql`SELECT COUNT(*) as count FROM influencers`;
+      const reviewsResult = await sql`SELECT COUNT(*) as count FROM reviews`;
+
+      return {
+        influencers: Number(influencersResult[0].count),
+        reviews: Number(reviewsResult[0].count),
+      };
+    } catch (error: any) {
+      console.error('Error getting storage stats:', error.message);
+      return {
+        influencers: 0,
+        reviews: 0,
+      };
+    }
+  }
+
+  async clearAll() {
+    try {
+      await sql`DELETE FROM reviews`;
+      await sql`DELETE FROM influencers`;
+      console.log('All data cleared');
+    } catch (error: any) {
+      console.error('Error clearing data:', error.message);
+      throw new Error('Failed to clear data');
+    }
+  }
+
+  // ========== HELPER METHODS ==========
+
+  private mapInfluencerFromDB(row: any): Influencer {
     return {
-      influencers: this.influencers.size,
-      reviews: this.reviews.size,
+      id: row.id,
+      walletAddress: row.wallet_address,
+      name: row.name,
+      bio: row.bio,
+      socialLinks: row.social_links || undefined,
+      profileImage: row.profile_image || undefined,
+      createdAt: Number(row.created_at),
+      totalReviews: Number(row.total_reviews),
     };
   }
 
-  clearAll() {
-    this.influencers.clear();
-    this.reviews.clear();
-    this.reviewsByInfluencer.clear();
-    this.reviewsByReviewer.clear();
+  private mapReviewFromDB(row: any): Review {
+    return {
+      id: row.id,
+      influencerId: row.influencer_id,
+      reviewerWalletAddress: row.reviewer_wallet_address,
+      comment: row.comment,
+      createdAt: Number(row.created_at),
+    };
   }
 }
 

@@ -7,7 +7,7 @@ export interface SocialLinks {
 
 export interface Influencer {
   id: string;
-  walletAddress: string; // Creator's wallet (must have score >= 100)
+  walletAddress: string; // Creator's wallet (anyone can create)
   name: string;
   bio: string;
   socialLinks?: SocialLinks;
@@ -15,12 +15,7 @@ export interface Influencer {
   createdAt: number;
 
   // Stats
-  totalReviews: number;
-  bullishCount: number;
-  bearishCount: number;
-
-  // Calculated
-  sentimentScore: number; // percentage bullish (0-100)
+  totalReviews: number; // Total comments/reviews (bullish/bearish from smart contract)
 }
 
 export interface CreateInfluencerDto {
