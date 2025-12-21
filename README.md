@@ -34,6 +34,7 @@ Backend ini menyediakan:
 
 - **Runtime**: Node.js / TypeScript
 - **Framework**: Express.js
+- **Database**: PostgreSQL (Neon serverless)
 - **Blockchain Provider**: Alchemy SDK (Multichain)
 - **Web3 Library**: ethers.js v6
 - **Caching**: In-memory cache dengan TTL
@@ -46,7 +47,9 @@ backend/
 ├── src/
 │   ├── app.ts                              # Entry point
 │   ├── config/
-│   │   └── alchemy.ts                      # Multichain Alchemy clients
+│   │   ├── alchemy.ts                      # Multichain Alchemy clients
+│   │   ├── database.ts                     # Neon PostgreSQL client
+│   │   └── database.sql                    # Database schema
 │   ├── models/
 │   │   ├── influencer.model.ts             # Influencer data model
 │   │   └── review.model.ts                 # Review data model
@@ -54,9 +57,11 @@ backend/
 │   │   ├── wallet-analysis.service.ts      # Analyze wallet across all chains
 │   │   ├── scoring.service.ts              # Calculate reputation score
 │   │   ├── reputation.service.ts           # Main reputation service
-│   │   ├── storage.service.ts              # In-memory storage (MVP)
+│   │   ├── storage.service.ts              # PostgreSQL storage service
 │   │   ├── influencer.service.ts           # Influencer CRUD
 │   │   └── review.service.ts               # Review CRUD
+│   ├── scripts/
+│   │   └── init-db.ts                      # Database initialization script
 │   ├── routes/
 │   │   ├── reputation.route.ts             # Reputation endpoints
 │   │   ├── status.route.ts                 # Status & cache endpoints
@@ -78,13 +83,26 @@ backend/
 npm install
 ```
 
-### 2. Environment Variables
+### 2. Database Setup (Neon PostgreSQL)
 
-Copy `.env.example` ke `.env` dan isi dengan Alchemy API Key:
+**Cara setup Neon database:**
+
+1. **Create Neon Project**
+   - Daftar di https://neon.tech (gratis)
+   - Klik "Create Project"
+   - Pilih region terdekat (US East recommended)
+   - Copy connection string yang diberikan
+
+2. **Update Environment Variables**
+
+Copy `.env.example` ke `.env` dan isi:
 
 ```env
 # Alchemy Configuration
 ALCHEMY_API_KEY=your_alchemy_api_key_here
+
+# Neon PostgreSQL Database
+DATABASE_URL=postgresql://user:password@ep-xxxxx.us-east-2.aws.neon.tech/neondb?sslmode=require
 
 # Server Configuration
 PORT=3000
@@ -99,6 +117,39 @@ CACHE_TTL=300000
 2. Create New App
 3. Pilih salah satu network (key akan bekerja untuk semua networks)
 4. Copy API Key
+
+3. **Initialize Database Tables**
+
+Jalankan script untuk create tables:
+
+```bash
+tsx src/scripts/init-db.ts
+```
+
+Output yang sukses:
+```
+==================================================
+Vitrum Backend - Database Initialization
+==================================================
+
+1. Testing database connection...
+✅ Database connected successfully: 2024-01-15T...
+
+2. Creating tables and indexes...
+✅ Database tables initialized successfully
+
+Tables created:
+  - influencers
+  - reviews
+
+You can now start the server with: npm run dev
+==================================================
+```
+
+**Database Schema:**
+- **influencers**: id, wallet_address, name, bio, social_links (JSONB), profile_image, created_at, stats
+- **reviews**: id, influencer_id, reviewer_wallet_address, sentiment, comment, created_at
+- Indexes: wallet lookups, sorting by date/sentiment, foreign key constraints
 
 ### 3. Jalankan Development Server
 
@@ -238,9 +289,11 @@ POST /api/status/cache/clear    # Clear cache (admin)
 
 ---
 
-## Influencer Endpoints
+## Influencer/Creator Endpoints
 
-### 9. Create Influencer Profile
+### 9. Create Influencer/Creator Profile
+
+**Anyone can create** - No reputation requirement!
 
 ```http
 POST /api/influencer
@@ -249,18 +302,19 @@ Content-Type: application/json
 {
   "walletAddress": "0x...",
   "name": "Vitalik Buterin",
-  "bio": "Co-founder of Ethereum...",
+  "bio": "Co-founder of Ethereum. Building decentralized future.",
   "socialLinks": {
     "twitter": "https://twitter.com/VitalikButerin",
     "telegram": "...",
-    "website": "..."
+    "discord": "...",
+    "website": "https://vitalik.eth.limo"
   },
   "profileImage": "https://..."
 }
 ```
 
 **Requirements:**
-- ✅ Wallet score >= 100 (eligible)
+- ✅ Valid wallet address
 - ✅ Name minimum 2 characters
 - ✅ Bio minimum 10 characters
 - ✅ One profile per wallet
@@ -273,13 +327,14 @@ Content-Type: application/json
     "id": "uuid-...",
     "walletAddress": "0x...",
     "name": "Vitalik Buterin",
-    "bio": "...",
-    "socialLinks": {...},
-    "createdAt": 1234567890,
-    "totalReviews": 0,
-    "bullishCount": 0,
-    "bearishCount": 0,
-    "sentimentScore": 0
+    "bio": "Co-founder of Ethereum...",
+    "socialLinks": {
+      "twitter": "https://twitter.com/VitalikButerin",
+      "website": "https://vitalik.eth.limo"
+    },
+    "profileImage": "https://...",
+    "createdAt": 1703145600000,
+    "totalReviews": 0
   }
 }
 ```
@@ -288,16 +343,30 @@ Content-Type: application/json
 
 ```http
 GET /api/influencer?sortBy=recent
+GET /api/influencer?sortBy=popular
 ```
 
 **Query Params:**
-- `sortBy`: `recent` | `popular` | `bullish` (optional)
+- `sortBy`: `recent` | `popular` (optional)
+  - `recent`: Sort by creation date (newest first)
+  - `popular`: Sort by total reviews (most reviewed first)
 
 **Response:**
 ```json
 {
   "success": true,
-  "data": [...],
+  "data": [
+    {
+      "id": "uuid-...",
+      "walletAddress": "0x...",
+      "name": "Vitalik Buterin",
+      "bio": "...",
+      "socialLinks": {...},
+      "profileImage": "...",
+      "createdAt": 1703145600000,
+      "totalReviews": 25
+    }
+  ],
   "count": 10
 }
 ```
@@ -308,17 +377,37 @@ GET /api/influencer?sortBy=recent
 GET /api/influencer/:id
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid-...",
+    "walletAddress": "0x...",
+    "name": "...",
+    "bio": "...",
+    "totalReviews": 25
+  }
+}
+```
+
 ### 12. Get Influencer by Wallet
 
 ```http
 GET /api/influencer/wallet/:address
 ```
 
+**Response:** Same as Get by ID
+
 ---
 
-## Review Endpoints
+## Review/Comment Endpoints
 
-### 13. Create Review (Vote Bullish/Bearish)
+**Note:** Bullish/bearish votes handled by smart contract, not backend!
+
+### 13. Create Comment/Review
+
+**Requires wallet score >= 100**
 
 ```http
 POST /api/review
@@ -327,16 +416,15 @@ Content-Type: application/json
 {
   "influencerId": "uuid-...",
   "reviewerWalletAddress": "0x...",
-  "sentiment": "bullish",
-  "comment": "Great insights on DeFi trends!"
+  "comment": "Great insights on DeFi trends! Very helpful content."
 }
 ```
 
 **Requirements:**
 - ✅ Reviewer wallet score >= 100 (eligible)
 - ✅ Influencer must exist
-- ✅ One vote per influencer per wallet
-- ✅ Sentiment: `bullish` or `bearish`
+- ✅ One comment per influencer per wallet
+- ✅ Comment minimum 10 characters
 
 **Response:**
 ```json
@@ -346,23 +434,55 @@ Content-Type: application/json
     "id": "uuid-...",
     "influencerId": "uuid-...",
     "reviewerWalletAddress": "0x...",
-    "sentiment": "bullish",
-    "comment": "...",
-    "createdAt": 1234567890
+    "comment": "Great insights on DeFi trends! Very helpful content.",
+    "createdAt": 1703145700000
   }
 }
 ```
 
-### 14. Get Influencer Reviews
+**Error Response (Ineligible):**
+```json
+{
+  "success": false,
+  "error": "Wallet not eligible to comment. Score: 45. Required: 100 or higher."
+}
+```
+
+**Error Response (Duplicate):**
+```json
+{
+  "success": false,
+  "error": "You have already commented on this influencer"
+}
+```
+
+### 14. Get Influencer Comments
 
 ```http
 GET /api/review/influencer/:influencerId
 ```
 
-### 15. Get Review Stats
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid-...",
+      "influencerId": "uuid-...",
+      "reviewerWalletAddress": "0x...",
+      "comment": "Great insights!",
+      "createdAt": 1703145700000
+    }
+  ],
+  "count": 5
+}
+```
+
+### 15. Get Comment Count
 
 ```http
-GET /api/review/influencer/:influencerId/stats
+GET /api/review/influencer/:influencerId/count
 ```
 
 **Response:**
@@ -370,21 +490,34 @@ GET /api/review/influencer/:influencerId/stats
 {
   "success": true,
   "data": {
-    "totalReviews": 50,
-    "bullishCount": 35,
-    "bearishCount": 15,
-    "sentimentScore": 70.0
+    "totalReviews": 25
   }
 }
 ```
 
-### 16. Get Reviews by Reviewer
+### 16. Get Comments by Reviewer
 
 ```http
 GET /api/review/reviewer/:walletAddress
 ```
 
-### 17. Check if Reviewed
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid-...",
+      "influencerId": "uuid-...",
+      "comment": "...",
+      "createdAt": 1703145700000
+    }
+  ],
+  "count": 3
+}
+```
+
+### 17. Check if Already Commented
 
 ```http
 GET /api/review/check/:walletAddress/:influencerId
@@ -399,6 +532,8 @@ GET /api/review/check/:walletAddress/:influencerId
   }
 }
 ```
+
+**Use case:** Disable comment button if user already commented
 
 ## Reputation Scoring Formula
 
@@ -499,25 +634,25 @@ Error Response:
   };
   profileImage?: string;
   createdAt: number;
-  totalReviews: number;
-  bullishCount: number;
-  bearishCount: number;
-  sentimentScore: number; // 0-100 percentage
+  totalReviews: number; // Comment count only
 }
 ```
 
-### Review Model
+**Note:** Bullish/bearish votes handled by smart contract, not stored in backend.
+
+### Review/Comment Model
 
 ```typescript
 {
   id: string;
   influencerId: string;
   reviewerWalletAddress: string;
-  sentiment: 'bullish' | 'bearish';
-  comment?: string;
+  comment: string; // Required, min 10 chars
   createdAt: number;
 }
 ```
+
+**Note:** No sentiment field - bullish/bearish votes from smart contract only.
 
 ---
 
@@ -737,11 +872,230 @@ const { data: stats } = await fetch(`/api/review/influencer/${influencerId}/stat
 
 ### Production Considerations
 Untuk production, consider:
-1. **Database**: Migrate ke PostgreSQL/MongoDB
+1. **Database**: ✅ Already using PostgreSQL (Neon)
 2. **Caching**: Redis untuk distributed caching
 3. **Queue**: Bull/BullMQ untuk background jobs
 4. **Rate Limiting**: Implement API rate limiting
 5. **Authentication**: Add JWT/session management
+
+---
+
+## 🚀 Deployment to Railway
+
+### Prerequisites
+- Railway account (https://railway.app)
+- Neon database already setup
+- GitHub repository (optional but recommended)
+
+### Step 1: Prepare Environment Variables
+
+Create a `.env` file with all required variables:
+
+```env
+# Alchemy Configuration
+ALCHEMY_API_KEY=your_alchemy_api_key_here
+
+# Neon PostgreSQL Database
+DATABASE_URL=postgresql://user:password@ep-xxxxx.us-east-2.aws.neon.tech/neondb?sslmode=require
+
+# Server Configuration
+PORT=3000
+NODE_ENV=production
+
+# Cache Configuration
+CACHE_TTL=300000
+```
+
+### Step 2: Deploy to Railway
+
+#### Option A: Deploy from GitHub (Recommended)
+
+1. **Push code to GitHub**
+   ```bash
+   git add .
+   git commit -m "feat: ready for deployment"
+   git push origin main
+   ```
+
+2. **Connect to Railway**
+   - Go to https://railway.app
+   - Click "New Project"
+   - Select "Deploy from GitHub repo"
+   - Select your repository
+   - Railway will auto-detect Node.js project
+
+3. **Add Environment Variables**
+   - Go to your project → Variables tab
+   - Add each environment variable:
+     - `ALCHEMY_API_KEY`
+     - `DATABASE_URL`
+     - `NODE_ENV=production`
+     - `PORT=3000`
+     - `CACHE_TTL=300000`
+
+4. **Configure Build Settings**
+   Railway auto-detects `package.json`:
+   - Build Command: `npm run build`
+   - Start Command: `npm start`
+
+#### Option B: Deploy from CLI
+
+1. **Install Railway CLI**
+   ```bash
+   npm install -g @railway/cli
+   ```
+
+2. **Login to Railway**
+   ```bash
+   railway login
+   ```
+
+3. **Initialize Project**
+   ```bash
+   railway init
+   ```
+
+4. **Add Environment Variables**
+   ```bash
+   railway variables set ALCHEMY_API_KEY=your_key
+   railway variables set DATABASE_URL=your_neon_url
+   railway variables set NODE_ENV=production
+   ```
+
+5. **Deploy**
+   ```bash
+   railway up
+   ```
+
+### Step 3: Run Database Migration (One-Time)
+
+After first deployment, you need to run the migration script ONCE:
+
+```bash
+# Via Railway CLI
+railway run npx tsx src/scripts/migrate-remove-sentiment.ts
+
+# Or use Railway's web dashboard shell
+```
+
+**Note:** Migration only needs to run once if you're migrating from old schema. For fresh deployment, run init-db instead:
+
+```bash
+railway run npx tsx src/scripts/init-db.ts
+```
+
+### Step 4: Generate Public URL
+
+1. Go to Railway project Settings
+2. Click "Generate Domain"
+3. Railway will provide a public URL: `https://your-project.up.railway.app`
+
+### Step 5: Test Deployment
+
+```bash
+# Test health check
+curl https://your-project.up.railway.app/health
+
+# Test reputation endpoint
+curl https://your-project.up.railway.app/api/reputation/0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045/quick
+```
+
+### Deployment Checklist
+
+- [ ] Push code to GitHub
+- [ ] Create Railway project
+- [ ] Add all environment variables
+- [ ] Database connected (verify DATABASE_URL)
+- [ ] Run database migration/initialization
+- [ ] Generate public domain
+- [ ] Test health endpoint
+- [ ] Test reputation endpoint
+- [ ] Test create influencer
+- [ ] Test create comment
+- [ ] Update frontend API URL
+
+### Environment Variables Required
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `ALCHEMY_API_KEY` | Alchemy API key for blockchain data | `LkLykb8aTBMU...` |
+| `DATABASE_URL` | Neon PostgreSQL connection string | `postgresql://user:pass@...` |
+| `NODE_ENV` | Environment mode | `production` |
+| `PORT` | Server port (Railway auto-assigns) | `3000` |
+| `CACHE_TTL` | Cache time-to-live in ms | `300000` |
+
+### Common Issues & Solutions
+
+**Issue: Database connection failed**
+- ✅ Check DATABASE_URL format includes `?sslmode=require`
+- ✅ Verify Neon database is active
+- ✅ Check if pooling is enabled in Neon
+
+**Issue: Build failed**
+- ✅ Make sure `package.json` has all dependencies
+- ✅ Check TypeScript compiles locally: `npm run build`
+- ✅ Verify Node version compatibility
+
+**Issue: Migration failed**
+- ✅ Only run migration once
+- ✅ For fresh deploy, use `init-db.ts` instead
+- ✅ Check database has proper permissions
+
+**Issue: Rate limiting / Alchemy errors**
+- ✅ Verify ALCHEMY_API_KEY is valid
+- ✅ Check Alchemy dashboard for rate limits
+- ✅ Consider upgrading Alchemy plan if needed
+
+### Monitoring
+
+Railway provides built-in monitoring:
+- **Logs**: View real-time application logs
+- **Metrics**: CPU, Memory, Network usage
+- **Deployments**: Track deployment history
+- **Rollback**: Easy rollback to previous versions
+
+### Auto-Deploy
+
+Railway automatically deploys on every push to `main` branch:
+```bash
+git push origin main
+# Railway automatically rebuilds and deploys
+```
+
+### Custom Domain (Optional)
+
+1. Go to project Settings → Domains
+2. Click "Custom Domain"
+3. Add your domain (e.g., `api.vitrum.xyz`)
+4. Update DNS records as instructed by Railway
+
+---
+
+## 📊 Production Monitoring
+
+**Recommended tools:**
+- **Railway Metrics**: Built-in CPU/Memory monitoring
+- **Neon Dashboard**: Database performance & queries
+- **Alchemy Dashboard**: API usage & rate limits
+- **Sentry**: Error tracking (optional)
+- **LogTail**: Log aggregation (optional)
+
+---
+
+## 🔒 Security Best Practices
+
+1. **Environment Variables**: Never commit `.env` to git
+2. **API Keys**: Rotate Alchemy API keys periodically
+3. **Database**: Use connection pooling (Neon handles this)
+4. **Rate Limiting**: Implement on production
+5. **CORS**: Configure allowed origins in production
+6. **Input Validation**: Already implemented (ethers.js + custom validation)
+
+---
+
+## 📝 License
+
+MIT
 6. **IPFS**: Store profile images di IPFS
 7. **Events**: Emit events untuk NFT minting
 

@@ -6,8 +6,8 @@ import { reputationService } from './reputation.service';
 
 export class InfluencerService {
   /**
-   * Create new influencer profile
-   * Requires: wallet score >= 100 (eligible)
+   * Create new influencer/creator profile
+   * No reputation requirement - anyone can create
    */
   async createInfluencer(dto: CreateInfluencerDto): Promise<Influencer> {
     // Validate wallet address
@@ -16,17 +16,9 @@ export class InfluencerService {
     }
 
     // Check if wallet already has influencer profile
-    const existing = storageService.getInfluencerByWallet(dto.walletAddress);
+    const existing = await storageService.getInfluencerByWallet(dto.walletAddress);
     if (existing) {
       throw new Error('Wallet already has an influencer profile');
-    }
-
-    // Validate reputation score (must be >= 100 to create influencer)
-    const reputation = await reputationService.getQuickReputation(dto.walletAddress);
-    if (!reputation.eligible) {
-      throw new Error(
-        `Wallet not eligible. Score: ${reputation.score}. Required: 100 or higher.`
-      );
     }
 
     // Validate required fields
@@ -48,69 +40,55 @@ export class InfluencerService {
       profileImage: dto.profileImage,
       createdAt: Date.now(),
       totalReviews: 0,
-      bullishCount: 0,
-      bearishCount: 0,
-      sentimentScore: 0,
     };
 
-    return storageService.createInfluencer(influencer);
+    return await storageService.createInfluencer(influencer);
   }
 
   /**
    * Get influencer by ID
    */
-  getInfluencerById(id: string): Influencer | null {
-    return storageService.getInfluencerById(id);
+  async getInfluencerById(id: string): Promise<Influencer | null> {
+    return await storageService.getInfluencerById(id);
   }
 
   /**
    * Get influencer by wallet address
    */
-  getInfluencerByWallet(walletAddress: string): Influencer | null {
+  async getInfluencerByWallet(walletAddress: string): Promise<Influencer | null> {
     if (!ethers.isAddress(walletAddress)) {
       return null;
     }
-    return storageService.getInfluencerByWallet(walletAddress);
+    return await storageService.getInfluencerByWallet(walletAddress);
   }
 
   /**
    * Get all influencers
    */
-  getAllInfluencers(options?: { sortBy?: 'recent' | 'popular' | 'bullish' }): Influencer[] {
-    let influencers = storageService.getAllInfluencers();
+  async getAllInfluencers(options?: { sortBy?: 'recent' | 'popular' }): Promise<Influencer[]> {
+    let influencers = await storageService.getAllInfluencers();
 
     // Sort
     if (options?.sortBy === 'recent') {
       influencers.sort((a, b) => b.createdAt - a.createdAt);
     } else if (options?.sortBy === 'popular') {
       influencers.sort((a, b) => b.totalReviews - a.totalReviews);
-    } else if (options?.sortBy === 'bullish') {
-      influencers.sort((a, b) => b.sentimentScore - a.sentimentScore);
     }
 
     return influencers;
   }
 
   /**
-   * Update influencer stats after review
+   * Update influencer review count after review
    */
-  updateInfluencerStats(influencerId: string, sentiment: 'bullish' | 'bearish'): Influencer | null {
-    const influencer = storageService.getInfluencerById(influencerId);
+  async incrementReviewCount(influencerId: string): Promise<Influencer | null> {
+    const influencer = await storageService.getInfluencerById(influencerId);
     if (!influencer) return null;
 
     const totalReviews = influencer.totalReviews + 1;
-    const bullishCount =
-      sentiment === 'bullish' ? influencer.bullishCount + 1 : influencer.bullishCount;
-    const bearishCount =
-      sentiment === 'bearish' ? influencer.bearishCount + 1 : influencer.bearishCount;
 
-    const sentimentScore = totalReviews > 0 ? (bullishCount / totalReviews) * 100 : 0;
-
-    return storageService.updateInfluencer(influencerId, {
+    return await storageService.updateInfluencer(influencerId, {
       totalReviews,
-      bullishCount,
-      bearishCount,
-      sentimentScore,
     });
   }
 }
