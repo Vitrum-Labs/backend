@@ -91,6 +91,18 @@ export class InfluencerService {
       totalReviews,
     });
   }
+
+  /**
+   * Delete influencer by ID
+   */
+  async deleteInfluencer(id: string): Promise<boolean> {
+    const influencer = await storageService.getInfluencerById(id);
+    if (!influencer) {
+      throw new Error('Influencer not found');
+    }
+
+    return await storageService.deleteInfluencer(id);
+  }
 }
 
 export const influencerService = new InfluencerService();

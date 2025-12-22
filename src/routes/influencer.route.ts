@@ -105,4 +105,26 @@ router.get('/wallet/:address', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * DELETE /api/influencer/:id
+ * Delete influencer by ID
+ */
+router.delete('/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    await influencerService.deleteInfluencer(id);
+
+    res.json({
+      success: true,
+      message: 'Influencer deleted successfully',
+    });
+  } catch (error: any) {
+    const statusCode = error.message === 'Influencer not found' ? 404 : 400;
+    res.status(statusCode).json({
+      success: false,
+      error: error.message || 'Failed to delete influencer',
+    });
+  }
+});
+
 export default router;
