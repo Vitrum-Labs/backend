@@ -24,7 +24,7 @@ CREATE INDEX IF NOT EXISTS idx_influencers_total_reviews ON influencers(total_re
 
 -- ========================================
 -- TABLE: reviews
--- Stores reviews/comments only (votes from smart contract)
+-- Stores reviews/comments only
 -- ========================================
 CREATE TABLE IF NOT EXISTS reviews (
   id VARCHAR(36) PRIMARY KEY,
@@ -43,10 +43,34 @@ CREATE INDEX IF NOT EXISTS idx_reviews_reviewer_wallet ON reviews(reviewer_walle
 CREATE INDEX IF NOT EXISTS idx_reviews_created_at ON reviews(created_at DESC);
 
 -- ========================================
+-- TABLE: votes
+-- Stores bullish/bearish votes (backend, not smart contract)
+-- ========================================
+CREATE TABLE IF NOT EXISTS votes (
+  id VARCHAR(36) PRIMARY KEY,
+  influencer_id VARCHAR(36) NOT NULL REFERENCES influencers(id) ON DELETE CASCADE,
+  voter_wallet_address VARCHAR(42) NOT NULL,
+  vote_type VARCHAR(10) NOT NULL CHECK (vote_type IN ('bullish', 'bearish')),
+  created_at BIGINT NOT NULL,
+
+  -- One vote per wallet per influencer (permanent, cannot be changed)
+  UNIQUE (influencer_id, voter_wallet_address)
+);
+
+-- Indexes for votes table
+CREATE INDEX IF NOT EXISTS idx_votes_influencer_id ON votes(influencer_id);
+CREATE INDEX IF NOT EXISTS idx_votes_voter_wallet ON votes(voter_wallet_address);
+CREATE INDEX IF NOT EXISTS idx_votes_vote_type ON votes(vote_type);
+CREATE INDEX IF NOT EXISTS idx_votes_created_at ON votes(created_at DESC);
+
+-- ========================================
 -- COMMENTS
 -- ========================================
 COMMENT ON TABLE influencers IS 'Influencer/creator profiles - anyone can create';
 COMMENT ON TABLE reviews IS 'Comments/reviews on influencers, one comment per wallet per influencer (requires score >= 100)';
+COMMENT ON TABLE votes IS 'Bullish/bearish votes for influencers - requires score >= 100, one vote per wallet (permanent, cannot be changed)';
 
 COMMENT ON COLUMN influencers.wallet_address IS 'Creator wallet address (lowercase)';
 COMMENT ON COLUMN reviews.reviewer_wallet_address IS 'Reviewer wallet address (lowercase, must be eligible with score >= 100)';
+COMMENT ON COLUMN votes.voter_wallet_address IS 'Voter wallet address (lowercase, must be eligible with score >= 100)';
+COMMENT ON COLUMN votes.vote_type IS 'Vote type: bullish or bearish (permanent, cannot be changed)';
