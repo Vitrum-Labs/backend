@@ -2,6 +2,7 @@
 -- PostgreSQL (Neon/Railway)
 
 -- Drop tables if exists (untuk clean setup)
+DROP TABLE IF EXISTS votes CASCADE;
 DROP TABLE IF EXISTS reviews CASCADE;
 DROP TABLE IF EXISTS influencers CASCADE;
 
@@ -26,6 +27,16 @@ CREATE TABLE reviews (
   created_at BIGINT NOT NULL
 );
 
+-- Create votes table
+CREATE TABLE votes (
+  id VARCHAR(255) PRIMARY KEY,
+  influencer_id VARCHAR(255) REFERENCES influencers(id) ON DELETE CASCADE,
+  voter_wallet_address VARCHAR(255) NOT NULL,
+  vote_type VARCHAR(10) NOT NULL CHECK (vote_type IN ('bullish', 'bearish')),
+  created_at BIGINT NOT NULL,
+  UNIQUE(influencer_id, voter_wallet_address)
+);
+
 -- Create indexes for better performance
 CREATE INDEX idx_influencers_wallet ON influencers(wallet_address);
 CREATE INDEX idx_influencers_created_at ON influencers(created_at);
@@ -34,6 +45,11 @@ CREATE INDEX idx_influencers_total_reviews ON influencers(total_reviews);
 CREATE INDEX idx_reviews_influencer ON reviews(influencer_id);
 CREATE INDEX idx_reviews_reviewer ON reviews(reviewer_wallet_address);
 CREATE INDEX idx_reviews_created_at ON reviews(created_at);
+
+CREATE INDEX idx_votes_influencer ON votes(influencer_id);
+CREATE INDEX idx_votes_voter ON votes(voter_wallet_address);
+CREATE INDEX idx_votes_type ON votes(vote_type);
+CREATE INDEX idx_votes_created_at ON votes(created_at);
 
 -- Add comments for documentation
 COMMENT ON TABLE influencers IS 'Creator/influencer profiles - anyone can create';
@@ -46,3 +62,9 @@ COMMENT ON COLUMN influencers.total_reviews IS 'Cached count of total reviews';
 COMMENT ON COLUMN reviews.influencer_id IS 'Foreign key to influencers.id';
 COMMENT ON COLUMN reviews.reviewer_wallet_address IS 'Wallet address of reviewer';
 COMMENT ON COLUMN reviews.created_at IS 'Unix timestamp in milliseconds';
+
+COMMENT ON TABLE votes IS 'Bullish/bearish votes for influencers - requires reputation score >= 100, one vote per wallet (permanent)';
+COMMENT ON COLUMN votes.influencer_id IS 'Foreign key to influencers.id';
+COMMENT ON COLUMN votes.voter_wallet_address IS 'Wallet address of voter';
+COMMENT ON COLUMN votes.vote_type IS 'Vote type: bullish or bearish (permanent, cannot be changed)';
+COMMENT ON COLUMN votes.created_at IS 'Unix timestamp in milliseconds';

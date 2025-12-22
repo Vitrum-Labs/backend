@@ -1,6 +1,7 @@
 import { sql } from '../config/database';
 import { Influencer } from '../models/influencer.model';
 import { Review } from '../models/review.model';
+import { Vote, VoteStats } from '../models/vote.model';
 
 /**
  * PostgreSQL Storage Service (Neon)
@@ -294,6 +295,111 @@ class StorageService {
       influencerId: row.influencer_id,
       reviewerWalletAddress: row.reviewer_wallet_address,
       comment: row.comment,
+      createdAt: Number(row.created_at),
+    };
+  }
+
+  // ========== VOTE OPERATIONS ==========
+
+  async createVote(vote: Vote): Promise<Vote> {
+    try {
+      await sql`
+        INSERT INTO votes (
+          id, influencer_id, voter_wallet_address, vote_type, created_at
+        ) VALUES (
+          ${vote.id},
+          ${vote.influencerId},
+          ${vote.voterWalletAddress.toLowerCase()},
+          ${vote.voteType},
+          ${vote.createdAt}
+        )
+      `;
+      return vote;
+    } catch (error: any) {
+      console.error('Error creating vote:', error.message);
+      throw new Error('Failed to create vote');
+    }
+  }
+
+  async getVoteByWalletAndInfluencer(
+    voterWallet: string,
+    influencerId: string
+  ): Promise<Vote | null> {
+    try {
+      const result = await sql`
+        SELECT * FROM votes
+        WHERE LOWER(voter_wallet_address) = ${voterWallet.toLowerCase()}
+        AND influencer_id = ${influencerId}
+      `;
+
+      if (result.length === 0) return null;
+
+      return this.mapVoteFromDB(result[0]);
+    } catch (error: any) {
+      console.error('Error getting vote:', error.message);
+      return null;
+    }
+  }
+
+  async getVotesByInfluencer(influencerId: string): Promise<Vote[]> {
+    try {
+      const result = await sql`
+        SELECT * FROM votes
+        WHERE influencer_id = ${influencerId}
+        ORDER BY created_at DESC
+      `;
+
+      return result.map((row) => this.mapVoteFromDB(row));
+    } catch (error: any) {
+      console.error('Error getting votes by influencer:', error.message);
+      return [];
+    }
+  }
+
+  async getVoteStats(influencerId: string): Promise<VoteStats> {
+    try {
+      const result = await sql`
+        SELECT
+          COUNT(*) FILTER (WHERE vote_type = 'bullish') as bullish_count,
+          COUNT(*) FILTER (WHERE vote_type = 'bearish') as bearish_count,
+          COUNT(*) as total_count
+        FROM votes
+        WHERE influencer_id = ${influencerId}
+      `;
+
+      const bullishVotes = Number(result[0].bullish_count || 0);
+      const bearishVotes = Number(result[0].bearish_count || 0);
+      const totalVotes = Number(result[0].total_count || 0);
+      const netSentiment = bullishVotes - bearishVotes;
+      const sentimentPercentage = totalVotes > 0 ? (bullishVotes / totalVotes) * 100 : 0;
+
+      return {
+        influencerId,
+        bullishVotes,
+        bearishVotes,
+        totalVotes,
+        netSentiment,
+        sentimentPercentage: Math.round(sentimentPercentage * 10) / 10, // Round to 1 decimal
+      };
+    } catch (error: any) {
+      console.error('Error getting vote stats:', error.message);
+      return {
+        influencerId,
+        bullishVotes: 0,
+        bearishVotes: 0,
+        totalVotes: 0,
+        netSentiment: 0,
+        sentimentPercentage: 0,
+      };
+    }
+  }
+
+  private mapVoteFromDB(row: any): Vote {
+    return {
+      id: row.id,
+      influencerId: row.influencer_id,
+      voterWalletAddress: row.voter_wallet_address,
+      voteType: row.vote_type,
       createdAt: Number(row.created_at),
     };
   }

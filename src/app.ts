@@ -8,6 +8,7 @@ import reputationRoute from './routes/reputation.route';
 import statusRoute from './routes/status.route';
 import influencerRoute from './routes/influencer.route';
 import reviewRoute from './routes/review.route';
+import voteRoute from './routes/vote.route';
 
 // Load environment variables
 dotenv.config();
@@ -99,6 +100,7 @@ app.use('/api/reputation', reputationRoute);
 app.use('/api/status', statusRoute);
 app.use('/api/influencer', influencerRoute);
 app.use('/api/review', reviewRoute);
+app.use('/api/vote', voteRoute);
 
 // 404 handler
 app.use((req: Request, res: Response) => {
