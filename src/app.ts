@@ -120,6 +120,7 @@ app.use((err: Error, req: Request, res: Response, next: any) => {
 });
 
 // Start server
+// Railway will automatically use the PORT environment variable
 app.listen(PORT, () => {
   console.log('='.repeat(50));
   console.log('Vitrum Backend API');
